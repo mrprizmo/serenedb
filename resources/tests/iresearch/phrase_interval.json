@@ -1,0 +1,13 @@
+[
+  {"name":"A","phrase":"fox quick brown fox jumps second the lazy dog"},
+  {"name":"B","phrase":"fox second quick brown fox jumps second the lazy dog"},
+  {"name":"C","phrase":"fox second third quick brown fox jumps second the lazy dog"},
+  {"name":"D","phrase":"fox second third breaks quick brown fox jumps over the lazy dog"},
+  {"name":"E","phrase":"fox fox second second fourth quick quick one two brown fox jumps over the lazy dog"},
+  {"name":"F","phrase":"fox fox fox fox quick quick quick brown two red fox jumps over the lazy dog"},
+  {"name":"G","phrase":"fox fox fox fox quick quick quick brown two brown fox jumps over the lazy dog"},
+  {"name":"H","phrase":"quick fox fox fox brown jumps quick fown fox brown jumps over the dog fown one two thre quir one two bro"},
+  {"name":"I","phrase":"long road to one two three long road to one two teppereri long road to one two teppereri one yes to"},
+  {"name":"J","phrase":"pox quick foo foo quick brown"},
+  {"name":"K","phrase":"rox quick foo zoo quick brown brown brown"}
+]

@@ -1,0 +1,45 @@
+# See https://pre-commit.com for more information
+
+# General excludes, files can also be excluded on a hook level
+exclude: js/.*|resources/.*|third_party/.*|.*.js|LICENSE|private/aql/tokens.cpp|private/aql/grammar.cpp|private/aql/grammar.hpp
+default_install_hook_types: [pre-commit, pre-push]
+repos:
+  - repo: meta
+    hooks:
+      # TODO(mbkkt) - id: check-hooks-apply
+      - id: check-useless-excludes
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-ast
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-json
+      - id: check-shebang-scripts-are-executable
+      - id: check-merge-conflict
+      - id: pretty-format-json
+      - id: check-symlinks
+      - id: check-toml
+      - id: check-vcs-permalinks
+      - id: check-xml
+      - id: check-yaml
+      - id: destroyed-symlinks
+      # TODO(mbkkt) - id: detect-aws-credentials
+      # TODO(mbkkt) - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  - repo: https://github.com/BlankSpruce/gersemi
+    rev: 0.22.3
+    hooks:
+      - id: gersemi
+        name: CMake formatter
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v21.1.2
+    hooks:
+      - id: clang-format
+        files: \.(cpp|cc|c|hpp|hh|h|ipp|tpp)$

@@ -1,0 +1,102 @@
+////////////////////////////////////////////////////////////////////////////////
+/// DISCLAIMER
+///
+/// Copyright 2014-2023 ArangoDB GmbH, Cologne, Germany
+/// Copyright 2004-2014 triAGENS GmbH, Cologne, Germany
+///
+/// Licensed under the Apache License, Version 2.0 (the "License");
+/// you may not use this file except in compliance with the License.
+/// You may obtain a copy of the License at
+///
+///     http://www.apache.org/licenses/LICENSE-2.0
+///
+/// Unless required by applicable law or agreed to in writing, software
+/// distributed under the License is distributed on an "AS IS" BASIS,
+/// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+/// See the License for the specific language governing permissions and
+/// limitations under the License.
+///
+/// Copyright holder is ArangoDB GmbH, Cologne, Germany
+////////////////////////////////////////////////////////////////////////////////
+
+#include "exec_context.h"
+
+#include "auth/role_utils.h"
+#include "basics/static_strings.h"
+#include "catalog/identifiers/object_id.h"
+#include "general_server/authentication_feature.h"
+#include "general_server/state.h"
+
+namespace sdb {
+
+static constexpr Superuser kSuperuser{StaticStrings::kSystemDatabase,
+                                      id::kSystemDB};
+
+ExecContext::ExecContext(std::string_view user, std::string_view dbname,
+                         ObjectId database_id)
+  : _user{user},
+    _database{dbname},
+    _database_id{database_id},
+    _type{ExecContext::Type::Default} {
+  AuthenticationFeature* af = AuthenticationFeature::instance();
+  SDB_ASSERT(af != nullptr);
+  _database_auth_level = auth::Level::RW;
+  _system_db_auth_level = auth::Level::RW;
+
+  _is_admin_user = true;
+  if (af->isActive()) {
+    _database_auth_level = _system_db_auth_level =
+      auth::DatabaseAuthLevel(user, dbname, false);
+    if (dbname != StaticStrings::kSystemDatabase) {
+      _system_db_auth_level =
+        auth::DatabaseAuthLevel(user, StaticStrings::kSystemDatabase, false);
+    }
+    _is_admin_user = (_system_db_auth_level == auth::Level::RW);
+    if (!_is_admin_user && ServerState::instance()->ReadOnly()) {
+      _is_admin_user =
+        auth::DatabaseAuthLevel(user, StaticStrings::kSystemDatabase, true) ==
+        auth::Level::RW;
+    }
+  }
+}
+
+const ExecContext& ExecContext::superuser() { return kSuperuser; }
+
+std::shared_ptr<const ExecContext> ExecContext::superuserAsShared() {
+  return {std::shared_ptr<const ExecContext>{}, &kSuperuser};
+}
+
+bool ExecContext::isAuthEnabled() {
+  AuthenticationFeature* af = AuthenticationFeature::instance();
+  SDB_ASSERT(af != nullptr);
+  return af->isActive();
+}
+
+bool ExecContext::canUseDatabase(std::string_view db,
+                                 auth::Level requested) const {
+  if (isInternal() || _database == db) {
+    // should be RW for superuser, RO for read-only
+    return requested <= _database_auth_level;
+  }
+
+  AuthenticationFeature* af = AuthenticationFeature::instance();
+  SDB_ASSERT(af != nullptr);
+  if (af->isActive()) {
+    auth::Level allowed = auth::DatabaseAuthLevel(_user, db);
+    return requested <= allowed;
+  }
+  return true;
+}
+
+std::shared_ptr<ExecContext> ExecContext::create(std::string_view user,
+                                                 std::string_view dbname,
+                                                 ObjectId database_id) {
+  return std::make_shared<ExecContext>(user, dbname, database_id);
+}
+
+std::shared_ptr<Superuser> Superuser::create(std::string_view database,
+                                             ObjectId database_id) {
+  return std::make_shared<Superuser>(database, database_id);
+}
+
+}  // namespace sdb

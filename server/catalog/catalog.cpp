@@ -1,0 +1,415 @@
+////////////////////////////////////////////////////////////////////////////////
+/// DISCLAIMER
+///
+/// Copyright 2025 SereneDB GmbH, Berlin, Germany
+///
+/// Licensed under the Apache License, Version 2.0 (the "License");
+/// you may not use this file except in compliance with the License.
+/// You may obtain a copy of the License at
+///
+///     http://www.apache.org/licenses/LICENSE-2.0
+///
+/// Unless required by applicable law or agreed to in writing, software
+/// distributed under the License is distributed on an "AS IS" BASIS,
+/// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+/// See the License for the specific language governing permissions and
+/// limitations under the License.
+///
+/// Copyright holder is SereneDB GmbH, Berlin, Germany
+////////////////////////////////////////////////////////////////////////////////
+
+#include "catalog/catalog.h"
+
+#include <rocksdb/slice.h>
+
+#include <expected>
+#include <magic_enum/magic_enum.hpp>
+#include <memory>
+
+#include "app/app_server.h"
+#include "app/options/parameters.h"
+#include "app/options/program_options.h"
+#include "basics/application-exit.h"
+#include "basics/assert.h"
+#include "basics/containers/flat_hash_set.h"
+#include "basics/down_cast.h"
+#include "basics/errors.h"
+#include "basics/exceptions.h"
+#include "basics/logger/logger.h"
+#include "basics/static_strings.h"
+#include "basics/string_utils.h"
+#include "catalog/database.h"
+#include "catalog/identifiers/object_id.h"
+#include "catalog/local_catalog.h"
+#include "catalog/schema.h"
+#include "catalog/table.h"
+#include "catalog/view.h"
+#include "general_server/state.h"
+#include "rest_server/database_feature.h"
+#include "rest_server/serened.h"
+#include "rocksdb_engine_catalog/rocksdb_key.h"
+#include "storage_engine/engine_selector_feature.h"
+#include "storage_engine/storage_engine.h"
+#include "vpack/builder.h"
+#include "vpack/iterator.h"
+#include "vpack/serializer.h"
+#include "vpack/slice.h"
+
+#ifdef SDB_CLUSTER
+#include "cluster/cluster_feature.h"
+#include "cluster/global_catalog.h"
+#endif
+
+namespace sdb::catalog {
+namespace {
+
+Result ErrorMeta(ErrorCode code, std::string_view object_type,
+                 std::string_view error, vpack::Slice meta) {
+  return {code,  "Failed to read ", object_type,  " metadata ', error: ",
+          error, " metadata: ",     meta.toJson()};
+}
+
+}  // namespace
+
+CatalogFeature::CatalogFeature(Server& server)
+  : SerenedFeature{server, name()} {}
+
+void CatalogFeature::collectOptions(
+  std::shared_ptr<options::ProgramOptions> options) {
+  options->addOption(
+    "--skip-background-errors",
+    "Whether to attempt to continue in face of errors caused by background "
+    "tasks; may result in inconsistent database state.",
+    std::make_unique<options::BooleanParameter>(&_skip_background_errors));
+}
+
+void CatalogFeature::prepare() {
+  auto catalog =
+    std::make_shared<LocalCatalog>(GetServerEngine(), _skip_background_errors);
+  _global = catalog;
+  _local = catalog;
+  _physical = std::move(catalog);
+}
+
+void CatalogFeature::start() {
+#ifdef SDB_CLUSTER
+  if (ServerState::instance()->IsCoordinator()) {
+    auto catalog = std::make_shared<GlobalCatalog>(GetClusterInfo());
+    _global = catalog;
+    _physical = std::move(catalog);
+  } else if (ServerState::instance()->IsDBServer()) {
+    _global = std::make_shared<GlobalCatalog>(GetClusterInfo());
+  }
+#endif
+}
+
+void CatalogFeature::unprepare() {
+  // TODO(gnusi): fix
+  SDB_ASSERT(_local);
+  SDB_ASSERT(_global);
+  SDB_ASSERT(_physical);
+  //_local.reset();
+  //_global.reset();
+  //_physical.reset();
+}
+
+void CatalogFeature::beginShutdown() {}
+
+void CatalogFeature::stop() {}
+
+Result CatalogFeature::Open() {
+  if (ServerState::instance()->IsCoordinator()) {
+    return {};
+  }
+
+  auto r = ProcessTombstones();
+  if (!r.ok()) {
+    return r;
+  }
+
+  if (ServerState::instance()->IsSingle()) {
+    if (r = AddRoles(); !r.ok()) {
+      return r;
+    }
+  }
+
+  GetServerEngine().VisitDatabases([&](vpack::Slice slice) {
+    catalog::DatabaseOptions database;
+    if (r = vpack::ReadTupleNothrow(slice, database); !r.ok()) {
+      return false;
+    }
+
+    if (r = OpenDatabase(std::move(database)); !r.ok()) {
+      return false;
+    }
+    return true;
+  });
+
+  if (!catalog::GetDatabase(StaticStrings::kSystemDatabase)) {
+    SDB_FATAL("xxxxx", Logger::FIXME, "No ", StaticStrings::kSystemDatabase,
+              " database found in database directory");
+  }
+
+  return r;
+}
+
+Result CatalogFeature::AddDatabase(const DatabaseOptions& options) {
+  return Global().RegisterDatabase(
+    std::make_shared<catalog::Database>(options));
+}
+
+Result CatalogFeature::AddRoles() {
+  auto& engine = GetServerEngine();
+  auto r = engine.VisitObjects(
+    id::kSystemDB, RocksDBEntryType::Role,
+    [&](rocksdb::Slice key, vpack::Slice slice) -> Result {
+      SDB_ASSERT(!slice.get(StaticStrings::kDataSourceId).isNone());
+
+      std::shared_ptr<catalog::Role> role;
+      auto r = catalog::Role::Instantiate(role, slice, false);
+      if (!r.ok()) {
+        return ErrorMeta(r.errorNumber(), "role", r.errorMessage(), slice);
+      }
+
+      return Global().RegisterRole(std::move(role));
+    });
+
+  if (!r.ok()) {
+    return {r.errorNumber(), "Failed to read roles, error: ", r.errorMessage()};
+  }
+
+  return {};
+}
+
+Result CatalogFeature::ProcessTombstones() {
+  auto& engine = GetServerEngine();
+  auto r = engine.VisitObjects(
+    id::kTombstoneDatabase, RocksDBEntryType::TableTombstone,
+    [&](rocksdb::Slice key, vpack::Slice slice) -> Result {
+      TableTombstone tombstone;
+
+      if (auto r = vpack::ReadTupleNothrow<TableTombstone>(slice, tombstone);
+          !r.ok()) {
+        return ErrorMeta(r.errorNumber(), "collection tombstone",
+                         r.errorMessage(), slice);
+      }
+
+      Physical().RegisterTableDrop(std::move(tombstone));
+      return {};
+    });
+
+  if (!r.ok()) {
+    return {r.errorNumber(), "Failed to process collection tombstones, error: ",
+            r.errorMessage()};
+  }
+
+  r = engine.VisitObjects(
+    id::kTombstoneDatabase, RocksDBEntryType::DatabaseTombstone,
+    [&](rocksdb::Slice key, vpack::Slice slice) -> Result {
+      ObjectId database_id{RocksDBKey::databaseId(key)};
+
+      if (!database_id.isSet()) {
+        return ErrorMeta(ERROR_BAD_PARAMETER, "database tombstone",
+                         "invalid id", slice);
+      }
+
+      auto r = engine.VisitSchemaObjects(
+        database_id, database_id, RocksDBEntryType::Collection,
+        [&](rocksdb::Slice key, vpack::Slice slice) -> Result {
+          CreateTableOptions options;
+
+          // TODO(gnusi): .skip_unknown = false, .strict = true
+          if (auto r = vpack::ReadObjectNothrow<TableOptions>(
+                slice, options, {.skip_unknown = true, .strict = false},
+                ObjectInternal{});
+              !r.ok()) {
+            return ErrorMeta(r.errorNumber(), "collection", r.errorMessage(),
+                             slice);
+          }
+
+          TableTombstone tombstone;
+          tombstone.collection = options.id;
+
+          // TODO(gnusi): this will be gone once we have normal indexes
+          struct IndexMeta {
+            std::string_view objectId;  // NOLINT
+            IndexType type = IndexType::kTypeUnknown;
+            bool unique = false;
+          };
+          for (auto index_slice : vpack::ArrayIterator{options.indexes}) {
+            IndexMeta index;
+            auto r = vpack::ReadObjectNothrow(
+              index_slice, index, {.skip_unknown = true, .strict = false});
+            if (!r.ok()) {
+              return ErrorMeta(r.errorNumber(), "index", r.errorMessage(),
+                               index_slice);
+            }
+            ObjectId index_id{basics::string_utils::Uint64(index.objectId)};
+            if (!index_id.isSet()) {
+              continue;
+            }
+            tombstone.indexes.emplace_back(index_id, index.type,
+                                           std::numeric_limits<uint64_t>::max(),
+                                           index.unique);
+          }
+
+          Physical().RegisterTableDrop(std::move(tombstone));
+          return {};
+        });
+
+      if (!r.ok()) {
+        return r;
+      }
+
+      Physical().RegisterDatabaseDrop(database_id);
+      return {};
+    });
+
+  if (!r.ok()) {
+    return {r.errorNumber(),
+            "Failed to process database tombstones, error: ", r.errorMessage()};
+  }
+
+  return {};
+}
+
+Result CatalogFeature::AddTables(ObjectId database_id,
+                                 std::string_view database_name) {
+  auto& engine = GetServerEngine();
+  auto r = engine.VisitSchemaObjects(
+    database_id, database_id, RocksDBEntryType::Collection,
+    [&](rocksdb::Slice key, vpack::Slice slice) -> Result {
+      CreateTableOptions options;
+
+      // TODO(gnusi): .skip_unknown = false, .strict = true
+      if (auto r = vpack::ReadObjectNothrow<TableOptions>(
+            slice, options, {.skip_unknown = true, .strict = false},
+            ObjectInternal{});
+          !r.ok()) {
+        return ErrorMeta(r.errorNumber(), "collection", r.errorMessage(),
+                         slice);
+      }
+
+      return Local().RegisterTable(database_id, StaticStrings::kPublic,
+                                   std::move(options));
+    });
+
+  if (!r.ok()) {
+    return {r.errorNumber(),
+            "Failed to read functions in database: ", database_name,
+            " error: ", r.errorMessage()};
+  }
+  return {};
+}
+
+Result CatalogFeature::AddFunctions(ObjectId database_id,
+                                    std::string_view database_name) {
+  auto& engine = GetServerEngine();
+  auto r = engine.VisitSchemaObjects(
+    database_id, database_id, RocksDBEntryType::Function,
+    [&](rocksdb::Slice key, vpack::Slice slice) -> Result {
+      std::shared_ptr<catalog::Function> function;
+      auto r =
+        catalog::Function::Instantiate(function, database_id, slice, false);
+      if (!r.ok()) {
+        return ErrorMeta(r.errorNumber(), "role", r.errorMessage(), slice);
+      }
+
+      return Global().RegisterFunction(database_id, StaticStrings::kPublic,
+                                       std::move(function));
+    });
+
+  if (!r.ok()) {
+    return {r.errorNumber(),
+            "Failed to read functions in database: ", database_name,
+            " error: ", r.errorMessage()};
+  }
+  return {};
+}
+
+Result CatalogFeature::AddViews(ObjectId database_id,
+                                std::string_view database_name) {
+  auto& engine = GetServerEngine();
+  auto r = engine.VisitSchemaObjects(
+    database_id, database_id, RocksDBEntryType::View,
+    [&](rocksdb::Slice key, vpack::Slice slice) -> Result {
+      ViewOptions options;
+      auto r = ViewOptions::Read(options, slice);
+
+      if (!r.ok()) {
+        return ErrorMeta(r.errorNumber(), "view", r.errorMessage(), slice);
+      }
+
+      std::shared_ptr<catalog::View> view;
+      r = CreateViewInstance(view, database_id, std::move(options),
+                             ViewContext::Internal);
+
+      return Global().RegisterView(database_id, StaticStrings::kPublic,
+                                   std::move(view));
+    });
+
+  if (!r.ok()) {
+    return {r.errorNumber(),
+            "Failed to read views in database: ", database_name,
+            " error: ", r.errorMessage()};
+  }
+
+  return {};
+}
+
+Result CatalogFeature::OpenDatabase(catalog::DatabaseOptions database) {
+  SDB_TRACE(
+    "xxxxx", Logger::ENGINES,
+    "opening views and collections metadata in database: ", database.name);
+
+  return basics::SafeCall(
+    [&] -> Result {
+      if (auto r = AddDatabase(database); !r.ok()) {
+        return r;
+      }
+      if (ServerState::instance()->IsSingle()) {
+        if (auto r = AddFunctions(database.id, database.name); !r.ok()) {
+          return r;
+        }
+      }
+      if (auto r = AddTables(database.id, database.name); !r.ok()) {
+        return r;
+      }
+      if (ServerState::instance()->IsSingle()) {
+        if (auto r = AddViews(database.id, database.name); !r.ok()) {
+          return r;
+        }
+      }
+      return {};
+    },
+    [&](ErrorCode code, std::string_view message) {
+      return Result{code, "error while opening database '", database.name,
+                    "': ", message};
+    });
+}
+
+ResultOr<std::shared_ptr<Database>> GetDatabase(ObjectId database_id) {
+  auto& catalog =
+    SerenedServer::Instance().getFeature<catalog::CatalogFeature>().Global();
+  auto database = catalog.GetObject<catalog::Database>(database_id);
+  if (!database) [[unlikely]] {
+    return std::unexpected<Result>(std::in_place,
+                                   ERROR_SERVER_DATABASE_NOT_FOUND,
+                                   "Cannot find database ", database_id);
+  }
+  return database;
+}
+
+ResultOr<std::shared_ptr<Database>> GetDatabase(std::string_view name) {
+  auto& catalog =
+    SerenedServer::Instance().getFeature<catalog::CatalogFeature>().Global();
+  auto database = catalog.GetDatabase(name);
+  if (!database) [[unlikely]] {
+    return std::unexpected<Result>(std::in_place,
+                                   ERROR_SERVER_DATABASE_NOT_FOUND,
+                                   "Cannot find database ", name);
+  }
+  return database;
+}
+
+}  // namespace sdb::catalog

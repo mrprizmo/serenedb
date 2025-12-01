@@ -1,0 +1,67 @@
+{
+  "version": 8,
+  "configurePresets": [
+    {
+      "name": "common",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "build_${presetName}",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld",
+        "AUTO_UPDATE_MODULES": "Off",
+        "USE_DEBUG_INFO": "LLDB",
+        "SDB_FAULT_INJECTION": "On",
+        "BUILD_IRS_TESTS": "On",
+        "SDB_GTEST": "On",
+        "SDB_IOURING": "On"
+      }
+    },
+    {
+      "name": "clangd",
+      "inherits": [
+        "common"
+      ],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "STATIC_EXECUTABLES": "On",
+        "SDB_DEV": "On",
+        "SDB_ALLOC": "JE",
+        "USE_V8": "On"
+      }
+    },
+    {
+      "name": "bench",
+      "inherits": [
+        "common"
+      ],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "STATIC_EXECUTABLES": "On",
+        "SDB_DEV": "Off",
+        "SDB_USE_FMT": "On",
+        "SDB_FAULT_INJECTION": "Off",
+        "BUILD_IRS_TESTS": "Off",
+        "SDB_GTEST": "Off",
+        "SDB_ALLOC": "JE",
+        "USE_V8": "Off"
+      }
+    },
+    {
+      "name": "lldb",
+      "binaryDir": "build",
+      "inherits": [
+        "common"
+      ],
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "STATIC_EXECUTABLES": "Off",
+        "SDB_DEV": "On",
+        "SDB_ALLOC": "SYS",
+        "USE_V8": "Off"
+      }
+    }
+  ]
+}

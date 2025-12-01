@@ -1,0 +1,42 @@
+race:boost/lockfree/queue.hpp
+race:boost/lockfree/detail/freelist.hpp
+race:boost::lockfree::queue
+
+# logCrashInfo calls SDB_LOG which in turn calls std::string::reserve
+signal:libs/basics/CrashHandler.cpp
+signal:CrashHandlerSignalHandler
+
+signal:CExitHandler
+
+# alloc in signal handers strack trace here:
+signal:sdb::app::AppServer::wait
+
+# A compiler optimization in DBImpl::ReleaseSnapshot() produces code where a
+# register is populated with different addresses based on some condition, and
+# this register is later read to populate the variable `oldest_snapshot`.
+# However, this generated read is a non-atomic read, which therefore results in
+# a false positive race warning. I have created an according GitHub issue:
+# https://github.com/google/sanitizers/issues/1398
+race:VersionSet::SetLastSequence
+
+# TODO Fix known thread leaks
+thread:ClusterFeature::startHeartbeatThread
+thread:DatabaseFeature::start
+
+# TODO Fix lock order inversion
+deadlock:consensus::Agent::setPersistedState
+
+# TODO Fix data race in serenedb-tests
+race:DummyConnection::sendRequest
+
+# ATM we build V8 with sanitizers _disabled_, so the V8 code is not instrumented
+# which means the sanitizer cannot observe the synchronizations inside that code.
+# So when the V8 code calls back into instrumented code (e.g. the C runtime), TSan
+# might report potential data races because of these missing synchronizations.
+# For that reason we simply need to ignore _all_ data races coming from V8.
+race:v8::*
+
+# TODO It's "false positive" caused by code:
+# Because we call Begin() SwitchFlushContext() Commit()
+deadlock:SwitchFlushContext
+deadlock:irs::IndexWriter::Finish

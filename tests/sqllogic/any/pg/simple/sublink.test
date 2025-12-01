@@ -1,0 +1,197 @@
+query
+SELECT (SELECT 'eugene sokoloff');
+----
+?column?
+eugene sokoloff
+
+
+query
+SELECT *
+FROM
+(
+  VALUES ('pudge'), ('deadinside'), ('clickclack')
+) AS lol(name)
+WHERE name IN (VALUES ('pudge'), ('clickclack'));
+----
+name
+pudge
+clickclack
+
+
+query
+SELECT *
+FROM
+(
+  VALUES ('pudge'), ('deadinside'), ('clickclack')
+) AS lol(name)
+WHERE name = ANY(VALUES ('pudge'), ('clickclack'));
+----
+name
+pudge
+clickclack
+
+
+query
+SELECT *
+FROM
+(
+  VALUES ('pudge'), ('deadinside'), ('clickclack')
+) AS lol(name)
+WHERE name NOT IN (VALUES ('pudge'), ('clickclack'));
+----
+name
+deadinside
+
+
+query
+WITH networth AS (
+  SELECT
+    guy AS name,
+    SUM(coins) AS total_money
+  FROM (
+    VALUES
+      ('pudge', 100), ('pudge', 50), ('deadinside', 200), ('makak', 150), ('makak', 25)
+  ) AS lmao(guy, coins)
+  GROUP BY guy
+)
+SELECT
+  hero.name,
+  hero.description,
+  networth.total_money
+FROM
+(
+  VALUES
+    ('pudge', 'Pudge the Butcher'), ('deadinside', 'Sad Guy'), ('makak', 'Tree Climber')
+) AS hero(name, description)
+JOIN networth ON hero.name = networth.name
+WHERE
+  networth.total_money = (
+    SELECT MAX(total_money) FROM networth
+  )
+ORDER BY hero.name;
+----
+name description total_money
+deadinside Sad Guy 200
+
+
+query
+WITH networth AS (
+  SELECT
+    guy AS name,
+    SUM(coins) AS total_money
+  FROM (
+    VALUES
+      ('pudge', 100), ('pudge', 50), ('deadinside', 200), ('makak', 150), ('makak', 25)
+  ) AS lmao(guy, coins)
+  GROUP BY guy
+)
+SELECT (SELECT total_money FROM networth LIMIT 1);
+----
+total_money
+150
+
+
+query
+SELECT * FROM
+(
+  VALUES ('salkobaki')
+) AS outer_skuf(name)
+WHERE EXISTS(
+  SELECT * FROM
+  (
+    VALUES ('salkobaki')
+  )  AS inner_skuf(name)
+  WHERE inner_skuf.name = outer_skuf.name
+);
+----
+name
+salkobaki
+
+
+query
+SELECT * FROM
+(
+  VALUES ('salkobaki1', 69)
+) AS outer_skuf(name, iq)
+WHERE EXISTS(
+  SELECT * FROM
+  (
+    VALUES ('salkobaki2', 96)
+  )  AS inner_skuf(name, iq)
+  WHERE outer_skuf.name = name
+);
+----
+name iq
+
+
+
+# query -- there's no node in axiom
+# SELECT *
+# FROM
+# (
+#   VALUES
+#     ('android', 'abramoff', 'nachalnika'),
+#     ('arelav', 'oksimironoff', 'developer'),
+#     ('pavel', 'ivanoff', 'slave'),
+#     ('pavel', 'velivov', 'bo$$')
+# ) AS serenedb(name, sername, title)
+# WHERE (name, sername) = (
+#     SELECT 'pavel', 'ivanoff'
+# );
+# ----
+
+
+# query -- doesn't work in axiom
+# SELECT *
+# FROM
+# (
+#   VALUES ('pudgino'), ('mom'), ('tralaleolo tralalala')
+# )
+# WHERE EXISTS(SELECT 'pathetic exists thinks that he does somethings');
+# ----
+
+
+# query -- there's no node in axiom
+# WITH tindex(name, salary) AS (
+#   VALUES ('babsky', 999993), ('vitalig', 9999999), ('bulatb', 9)
+# )
+# SELECT *
+# FROM tindex
+# WHERE salary >= ALL(SELECT salary FROM tindex);
+
+
+# query -- doesn't work in axiom
+# SELECT *
+# FROM
+# (
+#   VALUES ('clickclack', 666),
+#          ('deadinside', 993),
+#          ('pudge', 228)
+# ) AS lol(kostya, vedernikoff)
+# WHERE EXISTS (
+#   SELECT 1
+#   FROM
+#   (
+#     VALUES ('abugubugu', 777)
+#   ) AS kek(whoever, whatever)
+# );
+# ----
+
+# query -- doesn't work in axiom
+# SELECT * FROM
+# (
+#   VALUES ('salkobaki')
+# ) AS lvl_1_skuf(name)
+# WHERE EXISTS(
+#   SELECT * FROM
+#   (
+#     VALUES ('salkobaki')
+#   )  AS lvl_2_skuf(name)
+#   WHERE EXISTS(
+#     SELECT * FROM
+#     (
+#       VALUES ('salkobaki')
+#     )  AS lvl_3_skuf(name)
+#     WHERE lvl_1_skuf.name = lvl_3_skuf.name
+#   )
+# );

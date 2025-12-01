@@ -1,0 +1,727 @@
+query
+SELECT 1;
+----
+?column?
+1
+
+
+query
+SELECT 1 + 2 * 3 % 7 - 1;
+----
+?column?
+6
+
+query
+SELECT x FROM generate_series(5, 15) AS t1(x)
+----
+x
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+
+
+# join crashes
+# query
+# SELECT x, y FROM generate_series(5, 15) AS t1(x)
+# LEFT JOIN generate_series(90, 100) AS t2(y)
+# ON true
+# WHERE x + y < 100;
+# ----
+
+
+query
+SELECT ARRAY['clickclack', 'vedernikoff', 'arelav'] AS c1, 'kek' AS c2, ARRAY[1, 2, 3] AS c3;
+----
+c1	c2	c3
+{clickclack,vedernikoff,arelav}	kek	{1,2,3}
+
+
+query
+SELECT ARRAY[ARRAY['1000-7', 'pudge', 'sydb'], ARRAY['kek', 'deadinside', 'lol']];
+----
+array
+{{1000-7,pudge,sydb},{kek,deadinside,lol}}
+
+
+query
+SELECT ARRAY[ARRAY[ARRAY['a', 'b'], ARRAY['c', 'd']], ARRAY[ARRAY['kek', 'lol'], ARRAY['deadinside', 'pudge']]];
+----
+array
+{{{a,b},{c,d}},{{kek,lol},{deadinside,pudge}}}
+
+
+query
+VALUES (1, 2, 3), (10, 20, 30);
+----
+column1	column2	column3
+1	2	3
+10	20	30
+
+
+# Naming
+# query
+# SELECT * FROM
+#   (VALUES (1, 2, 3), (10, 20, 30)) AS t1(x, y, z),
+#   (VALUES ('x'), ('y')) AS t2(c1, c2);
+# ----
+
+
+query
+SELECT FALSE AND TRUE OR FALSE AND NOT TRUE;
+----
+?column?
+f
+
+
+query
+SELECT NULL;
+----
+?column?
+NULL
+
+
+query
+SELECT 1 IS NULL;
+----
+?column?
+f
+
+
+query
+SELECT 1 IS NOT NULL;
+----
+?column?
+t
+
+
+query
+SELECT LEAST('skuf', 'arelav', 'levap'), GREATEST(2, 2, 8, 1, 3, 3, 8);
+----
+least	greatest
+arelav	8
+
+
+query
+SELECT GREATEST(1.5, 2.7, 0.8, 3.2) as result;
+----
+result
+3.2
+
+
+# query
+# SELECT UNNEST(ARRAY[1, 2, 3]);
+# ----
+# 1
+# 2
+# 3
+
+
+query
+SELECT
+  CASE
+    WHEN x = 1 THEN 'one'
+    WHEN x = 2 THEN 'two'
+    ELSE 'other'
+  END
+FROM UNNEST(ARRAY[1, 2, 3]) AS t(x);
+----
+case
+one
+two
+other
+
+
+query
+SELECT
+  CASE x
+    WHEN 1 THEN 'one'
+    WHEN 2 THEN 'two'
+    ELSE 'other'
+  END
+FROM UNNEST(ARRAY[1, 2, 3]) AS t(x);
+----
+case
+one
+two
+other
+
+
+query
+VALUES (1, 2, 3)
+----
+column1	column2	column3
+1	2	3
+
+
+query error
+SELECT 1 AND 2;
+----
+db error: ERROR: argument of AND must be type boolean, not type integer
+
+
+query
+SELECT 228
+WHERE true;
+----
+?column?
+228
+
+
+query
+SELECT 1 WHERE '1' IN ('2', '3', '1');
+----
+?column?
+1
+
+
+query
+SELECT 1 WHERE '1' NOT IN ('2', '3', '1');
+----
+?column?
+
+
+query
+SELECT 'kostya' LIKE 'kostya';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' LIKE 'k%';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' LIKE '%tya';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' LIKE '%ost%';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' LIKE 'k_stya';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' LIKE 'vedernikoff';
+----
+?column?
+f
+
+
+query
+SELECT 'kostya' NOT LIKE 'vedernikoff';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' NOT LIKE 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'Kostya' LIKE 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'KOSTYA' LIKE 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'kostya' LIKE 'KOSTYA';
+----
+?column?
+f
+
+
+query
+SELECT 'Kostya' ILIKE 'kostya';
+----
+?column?
+t
+
+
+query
+SELECT 'KOSTYA' ILIKE 'kostya';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' ILIKE 'KOSTYA';
+----
+?column?
+t
+
+
+query
+SELECT 'KOSTYA' ILIKE 'k%';
+----
+?column?
+t
+
+
+query
+SELECT 'Kostya' ILIKE '%TYA';
+----
+?column?
+t
+
+
+query
+SELECT 'KoStYa' ILIKE 'kostya';
+----
+?column?
+t
+
+
+query
+SELECT 'Kostya' NOT ILIKE 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'Kostya' NOT ILIKE 'vedernikoff';
+----
+?column?
+t
+
+
+query
+SELECT 'KOSTYA' NOT ILIKE 'VEDERNIKOFF';
+----
+?column?
+t
+
+
+query
+SELECT 5 BETWEEN 1 AND 10;
+----
+?column?
+t
+
+
+query
+SELECT 5 BETWEEN 5 AND 10;
+----
+?column?
+t
+
+
+query
+SELECT 5 BETWEEN 1 AND 5;
+----
+?column?
+t
+
+
+query
+SELECT 5 BETWEEN 6 AND 10;
+----
+?column?
+f
+
+
+query
+SELECT 5 NOT BETWEEN 1 AND 10;
+----
+?column?
+f
+
+
+query
+SELECT 5 NOT BETWEEN 6 AND 10;
+----
+?column?
+t
+
+
+query
+SELECT 'b' BETWEEN 'a' AND 'c';
+----
+?column?
+t
+
+
+query
+SELECT 'z' BETWEEN 'a' AND 'c';
+----
+?column?
+f
+
+
+query
+SELECT 5.5 BETWEEN 5.0 AND 6.0;
+----
+?column?
+t
+
+
+query
+SELECT 4.9 BETWEEN 5.0 AND 6.0;
+----
+?column?
+f
+
+
+query
+SELECT 5 BETWEEN SYMMETRIC 10 AND 1;
+----
+?column?
+t
+
+
+query
+SELECT 5 BETWEEN SYMMETRIC 1 AND 10;
+----
+?column?
+t
+
+
+query
+SELECT 15 BETWEEN SYMMETRIC 10 AND 1;
+----
+?column?
+f
+
+
+query
+SELECT 5 NOT BETWEEN SYMMETRIC 10 AND 1;
+----
+?column?
+f
+
+
+query
+SELECT 15 NOT BETWEEN SYMMETRIC 10 AND 1;
+----
+?column?
+t
+
+
+query
+SELECT 1 IS DISTINCT FROM 1;
+----
+?column?
+f
+
+
+query
+SELECT 1 IS DISTINCT FROM 2;
+----
+?column?
+t
+
+
+query
+SELECT 1 IS NOT DISTINCT FROM 1;
+----
+?column?
+t
+
+
+query
+SELECT 1 IS NOT DISTINCT FROM 2;
+----
+?column?
+f
+
+
+query
+SELECT 'kostya' IS DISTINCT FROM 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'kostya' IS DISTINCT FROM 'vedernikoff';
+----
+?column?
+t
+
+
+query
+SELECT 1 = ANY(ARRAY[1, 2, 3]);
+----
+?column?
+t
+
+
+query
+SELECT 4 = ANY(ARRAY[1, 2, 3]);
+----
+?column?
+f
+
+
+query
+SELECT 2 > ANY(ARRAY[1, 2, 3]);
+----
+?column?
+t
+
+
+query
+SELECT 1 > ANY(ARRAY[1, 2, 3]);
+----
+?column?
+f
+
+
+query
+SELECT 'kostya' = ANY(ARRAY['kostya', 'vedernikoff']);
+----
+?column?
+t
+
+
+query
+SELECT 'ivan' = ANY(ARRAY['kostya', 'vedernikoff']);
+----
+?column?
+f
+
+
+query
+SELECT 2 < ALL(ARRAY[3, 4, 5]);
+----
+?column?
+t
+
+
+query
+SELECT 2 < ALL(ARRAY[1, 2, 3]);
+----
+?column?
+f
+
+
+query
+SELECT 1 != ALL(ARRAY[2, 3, 4]);
+----
+?column?
+t
+
+
+query
+SELECT 1 != ALL(ARRAY[1, 2, 3]);
+----
+?column?
+f
+
+
+query
+SELECT 'kostya' != ALL(ARRAY['ivan', 'vedernikoff']);
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' != ALL(ARRAY['kostya', 'vedernikoff']);
+----
+?column?
+f
+
+
+query
+SELECT 1 = ANY(ARRAY[]::integer[]);
+----
+?column?
+f
+
+
+query
+SELECT 1 = ALL(ARRAY[]::integer[]);
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' ~~ 'kostya';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' ~~ 'k%';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' ~~ '%tya';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' ~~ '%ost%';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' ~~ 'k_stya';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' ~~ 'vedernikoff';
+----
+?column?
+f
+
+
+query
+SELECT 'kostya' !~~ 'vedernikoff';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' !~~ 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'Kostya' ~~ 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'KOSTYA' ~~ 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'Kostya' ~~* 'kostya';
+----
+?column?
+t
+
+
+query
+SELECT 'KOSTYA' ~~* 'kostya';
+----
+?column?
+t
+
+
+query
+SELECT 'kostya' ~~* 'KOSTYA';
+----
+?column?
+t
+
+
+query
+SELECT 'KOSTYA' ~~* 'k%';
+----
+?column?
+t
+
+
+query
+SELECT 'Kostya' ~~* '%TYA';
+----
+?column?
+t
+
+
+query
+SELECT 'KoStYa' ~~* 'kostya';
+----
+?column?
+t
+
+
+query
+SELECT 'Kostya' !~~* 'kostya';
+----
+?column?
+f
+
+
+query
+SELECT 'Kostya' !~~* 'vedernikoff';
+----
+?column?
+t
+
+
+query
+SELECT 'KOSTYA' !~~* 'VEDERNIKOFF';
+----
+?column?
+t
+
+
+query
+SELECT 'KoStYa' ~~* ALL(ARRAY['kostya', 'Kostya', 'kosty_']);
+----
+?column?
+t
+
+
+query
+SELECT substring('lmaovedernikoff' FROM 5 FOR 10);
+----
+substring
+vedernikof
+
+
+query
+SELECT (ARRAY[ARRAY[1, 2, 3], ARRAY[4, 5, 6]])[2][3];
+----
+array
+6

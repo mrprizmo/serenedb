@@ -1,0 +1,18 @@
+UpdateModule(${GIT_EXECUTABLE} "nghttp2-lib" ${CMAKE_CURRENT_SOURCE_DIR} "README")
+
+set(ENABLE_WERROR      OFF)
+set(ENABLE_DEBUG       OFF)
+set(ENABLE_THREADS     OFF)
+set(ENABLE_FAILMALLOC  OFF)
+set(ENABLE_LIB_ONLY    ON)
+set(ENABLE_STATIC_CRT  OFF)
+set(ENABLE_HTTP3       OFF)
+set(ENABLE_DOC         OFF)
+set(WITH_LIBXML2       OFF)
+set(WITH_JEMALLOC      OFF)
+set(WITH_MRUBY         OFF)
+set(WITH_NEVERBLEED    OFF)
+set(WITH_LIBBPF        OFF)
+set(CMAKE_SKIP_INSTALL_RULES ON)
+
+add_subdirectory(nghttp2-lib)

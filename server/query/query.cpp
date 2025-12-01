@@ -1,0 +1,183 @@
+////////////////////////////////////////////////////////////////////////////////
+/// DISCLAIMER
+///
+/// Copyright 2025 SereneDB GmbH, Berlin, Germany
+///
+/// Licensed under the Apache License, Version 2.0 (the "License");
+/// you may not use this file except in compliance with the License.
+/// You may obtain a copy of the License at
+///
+///     http://www.apache.org/licenses/LICENSE-2.0
+///
+/// Unless required by applicable law or agreed to in writing, software
+/// distributed under the License is distributed on an "AS IS" BASIS,
+/// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+/// See the License for the specific language governing permissions and
+/// limitations under the License.
+///
+/// Copyright holder is SereneDB GmbH, Berlin, Germany
+////////////////////////////////////////////////////////////////////////////////
+
+#include "query/query.h"
+
+#include <axiom/logical_plan/PlanPrinter.h>
+#include <axiom/optimizer/Optimization.h>
+#include <axiom/optimizer/Plan.h>
+#include <axiom/optimizer/Schema.h>
+#include <axiom/optimizer/ToVelox.h>
+#include <axiom/optimizer/VeloxHistory.h>
+#include <velox/common/memory/HashStringAllocator.h>
+#include <velox/expression/Expr.h>
+#include <velox/vector/VariantToVector.h>
+
+#include "catalog/table.h"
+#include "connector/serenedb_connector.hpp"
+#include "pg/sql_resolver.h"
+#include "query/cursor.h"
+
+namespace sdb::query {
+
+class SchemaResolver final : public axiom::connector::SchemaResolver {
+ public:
+  SchemaResolver(const pg::Objects& objects) : _objects{objects} {}
+
+  axiom::connector::TablePtr findTable(std::string_view catalog,
+                                       std::string_view name) const final {
+    auto [schema, table] =
+      std::pair<std::string_view, std::string_view>{absl::StrSplit(name, '.')};
+    auto object = _objects.getData(schema, table);
+    SDB_ASSERT(object);
+    SDB_ASSERT(object->object);
+    if (object->object->Is(TableType::Document)) {
+      return std::make_shared<connector::RocksDBTable>(
+        name, basics::downCast<catalog::Table>(*object->object));
+    }
+    return nullptr;
+  }
+
+ private:
+  const pg::Objects& _objects;
+};
+
+std::unique_ptr<Query> Query::CreateQuery(
+  const axiom::logical_plan::LogicalPlanNodePtr& root,
+  const QueryContext& query_ctx) {
+  return std::unique_ptr<Query>(new Query{root, query_ctx});
+}
+
+std::unique_ptr<Query> Query::CreateExternal(
+  std::unique_ptr<ExternalExecutor> executor, const QueryContext& query_ctx) {
+  return std::unique_ptr<Query>(new Query{std::move(executor), query_ctx});
+}
+
+std::unique_ptr<Query> Query::CreateShow(std::string_view show_variable,
+                                         const QueryContext& query_ctx) {
+  return std::unique_ptr<Query>(new Query{
+    velox::ROW({std::string{show_variable}}, {velox::VARCHAR()}),
+    query_ctx,
+  });
+}
+
+std::unique_ptr<Query> Query::CreateShowAll(const QueryContext& query_ctx) {
+  return std::unique_ptr<Query>(new Query{
+    velox::ROW({"name", "value", "description"},
+               {velox::VARCHAR(), velox::VARCHAR(), velox::VARCHAR()}),
+    query_ctx,
+  });
+}
+
+Query::Query(const axiom::logical_plan::LogicalPlanNodePtr& root,
+             const QueryContext& query_ctx)
+  : _query_ctx{query_ctx}, _logical_plan{root} {
+  if (_query_ctx.command_type.HasAnyNot(CommandType::Explain) ||
+      _query_ctx.explain_params.HasAnyNot(ExplainWith::Logical,
+                                          ExplainWith::Registers)) {
+    CompileQuery();
+  }
+
+  if (_query_ctx.command_type.Has(CommandType::Explain)) {
+    _output_type = velox::ROW({"QUERY PLAN"}, {velox::VARCHAR()});
+  } else {
+    SDB_ASSERT(_execution_plan);
+    const auto& fragments = _execution_plan->fragments();
+    SDB_ASSERT(!fragments.empty());
+    const auto& gather_fragment = fragments.back().fragment.planNode;
+    SDB_ASSERT(gather_fragment);
+    _output_type = gather_fragment->outputType();
+  }
+}
+
+void Query::CompileQuery() {
+  velox::HashStringAllocator query_graph_allocator{
+    _query_ctx.query_memory_pool.get()};
+  axiom::optimizer::QueryGraphContext query_graph_context{
+    query_graph_allocator};
+  axiom::optimizer::queryCtx() = &query_graph_context;
+  irs::Finally reset_optimizer_context = [&] noexcept {
+    axiom::optimizer::queryCtx() = nullptr;
+  };
+
+  SchemaResolver schema_resolver{_query_ctx.objects};
+  axiom::optimizer::VeloxHistory dummy_history;
+  velox::exec::SimpleExpressionEvaluator evaluator{
+    _query_ctx.velox_query_ctx.get(), _query_ctx.query_memory_pool.get()};
+  axiom::optimizer::OptimizerOptions optimizer_options;
+  axiom::runner::MultiFragmentPlan::Options runner_options{
+    .numWorkers = 1,
+    .numDrivers = 1,
+  };
+  axiom::Session session{""};
+  axiom::optimizer::Optimization optimization{
+    std::shared_ptr<axiom::Session>{std::shared_ptr<axiom::Session>{},
+                                    &session},
+    *_logical_plan,
+    schema_resolver,
+    dummy_history,
+    _query_ctx.velox_query_ctx,
+    evaluator,
+    optimizer_options,
+    runner_options,
+  };
+
+  auto best = optimization.bestPlan();
+  // This is not really correct, but it works for now
+  auto result = optimization.toVeloxPlan(best->op);
+  _execution_plan = std::move(result.plan);
+  _finish_write = std::move(result.finishWrite);
+}
+
+Query::Query(std::unique_ptr<ExternalExecutor> executor,
+             const QueryContext& query_ctx)
+  : _query_ctx{query_ctx}, _executor{std::move(executor)} {}
+
+std::string Query::GetLogicalPlan() const {
+  return axiom::logical_plan::PlanPrinter::toText(*_logical_plan);
+}
+
+Query::Query(velox::RowTypePtr output_type, const QueryContext& query_ctx)
+  : _query_ctx{query_ctx}, _output_type{std::move(output_type)} {}
+
+std::string Query::GetExecutionPlan() const {
+  return _execution_plan->toString(true);
+}
+
+ExternalExecutor& Query::GetExternalExecutor() const {
+  SDB_ASSERT(_executor);
+  return *_executor;
+}
+
+std::unique_ptr<Cursor> Query::MakeCursor(
+  std::function<void()>&& user_task) const {
+  std::unique_ptr<Cursor> ptr;
+  ptr.reset(new Cursor{std::move(user_task), *this});
+  return ptr;
+}
+
+Runner Query::MakeRunner() const {
+  return Runner{_execution_plan, std::move(_finish_write),
+                _query_ctx.velox_query_ctx,
+                std::make_shared<axiom::runner::ConnectorSplitSourceFactory>(
+                  axiom::connector::SplitOptions{}),
+                _query_ctx.query_memory_pool};
+}
+}  // namespace sdb::query

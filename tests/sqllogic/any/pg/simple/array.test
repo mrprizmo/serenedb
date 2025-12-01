@@ -1,0 +1,16 @@
+query
+SELECT
+  ARRAY[1, 0, 1] as basic,
+  ARRAY[1, NULL, 1] as with_nulls
+----
+basic with_nulls
+{1,0,1} {1,NULL,1}
+
+
+query
+SELECT
+  ARRAY[true, false, true] as basic,
+  ARRAY[false, NULL, NULL] as with_nulls
+----
+basic with_nulls
+{t,f,t} {f,NULL,NULL}

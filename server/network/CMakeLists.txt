@@ -1,0 +1,9 @@
+target_sources(
+    sereneserver
+    PRIVATE
+        cluster_utils.cpp
+        connection_pool.cpp
+        methods.cpp
+        network_feature.cpp
+        utils.cpp
+)

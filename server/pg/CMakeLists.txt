@@ -1,0 +1,26 @@
+add_subdirectory(commands)
+
+target_sources(
+    sereneserver
+    PRIVATE
+        executor.cpp
+        pg_comm_task.cpp
+        pg_feature.cpp
+        sql_statement.cpp
+        connection_context.cpp
+        pg_types.cpp
+        serialize.cpp
+        system_catalog.cpp
+        pg_catalog/pg_class.cpp
+        pg_catalog/pg_namespace.cpp
+        pg_catalog/pg_type.cpp
+        functions.cpp
+        extract.cpp
+        interval.cpp
+        sql_analyzer_velox.cpp
+        sql_collector.cpp
+        sql_def.cpp
+        sql_parser.cpp
+        sql_resolver.cpp
+        sql_utils.cpp
+)

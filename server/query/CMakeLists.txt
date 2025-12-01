@@ -1,0 +1,10 @@
+target_sources(
+    sereneserver
+    PRIVATE
+        query.cpp
+        cursor.cpp
+        config.cpp
+        utils.cpp
+        config_variables.cpp
+        types.cpp
+)

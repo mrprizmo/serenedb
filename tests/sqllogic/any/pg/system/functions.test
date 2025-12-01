@@ -1,0 +1,26 @@
+query
+SELECT current_schema;
+----
+current_schema
+public
+
+
+query
+SELECT current_schema();
+----
+current_schema
+public
+
+
+query
+SELECT current_schemas(false);
+----
+current_schemas
+{public}
+
+
+query
+SELECT current_schemas(true)
+----
+current_schemas
+{pg_catalog,public}

@@ -1,0 +1,10 @@
+@include serened
+
+[server]
+rest-server = false
+
+[log]
+level = error
+
+[database]
+restore-admin = true

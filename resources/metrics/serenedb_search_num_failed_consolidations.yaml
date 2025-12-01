@@ -1,0 +1,13 @@
+name: serenedb_search_num_failed_consolidations
+introducedIn: "1.0.0"
+help: |
+  Number of failed consolidations.
+unit: number
+type: gauge
+category: Search
+complexity: advanced
+exposedBy:
+  - dbserver
+  - single
+description: |
+  Number of failed consolidations.

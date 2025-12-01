@@ -1,0 +1,32 @@
+target_sources(
+    sereneserver
+    PRIVATE
+        database.cpp
+        databases.cpp
+        local_catalog.cpp
+        catalog.cpp
+        object.cpp
+        table_options.cpp
+        key_generator.cpp
+        search_analyzer_impl.cpp
+        sql_function_impl.cpp
+        table.cpp
+        logical_object.cpp
+        view.cpp
+        function.cpp
+        native_functions.cpp
+        base_query_view.cpp
+        sql_query_view.cpp
+        graph_view.cpp
+        validators.cpp
+        sharding_strategy.cpp
+        replication_common.cpp
+        role.cpp
+        # TODO search
+        geo.cpp
+        identity_analyzer.cpp
+        analyzer.cpp
+        mangling.cpp
+)
+
+add_subdirectory(identifiers)
