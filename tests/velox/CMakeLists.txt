@@ -11,3 +11,4 @@ include_directories(
 add_subdirectory(type)
 add_subdirectory(vector)
 add_subdirectory(serializers)
+add_subdirectory(expressions)
