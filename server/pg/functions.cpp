@@ -36,6 +36,7 @@
 #include "pg/connection_context.h"
 #include "pg/extract.h"
 #include "pg/functions/json.h"
+#include "pg/functions/union.h"
 #include "pg/interval.h"
 #include "pg/serialize.h"
 #include "pg/sql_exception_macro.h"
@@ -589,6 +590,7 @@ void registerFunctions(const std::string& prefix) {
     {prefix + "jsonout"});
 
   registerExtractFunctions(prefix);
+  RegisterUnionFunctions(prefix);
 }
 
 }  // namespace sdb::pg::functions
